@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>화면 녹화</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="renderer.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="app-title"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10.5" r="3"/></svg><h1>화면 녹화</h1></div>
+      <span class="local-note">내 컴퓨터에 저장</span>
+    </header>
+    <main class="workspace">
+      <section class="capture-area" aria-label="녹화 화면 선택">
+        <div class="section-heading"><h2>녹화할 화면</h2><button id="refresh" class="text-button" type="button">목록 새로고침</button></div>
+        <div class="preview" id="preview-stage">
+          <div id="preview-empty" class="preview-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><p>아래에서 화면이나 창을 선택하세요</p></div>
+          <img id="source-preview" alt="선택한 녹화 대상 미리보기" hidden>
+          <video id="live-preview" autoplay muted playsinline hidden></video>
+          <span id="preview-label" class="preview-label" hidden></span>
+        </div>
+        <div class="source-toolbar"><div class="source-tabs" role="tablist" aria-label="녹화 대상 종류"><button id="tab-screen" role="tab" aria-selected="true" aria-controls="sources" type="button">전체 화면</button><button id="tab-window" role="tab" aria-selected="false" aria-controls="sources" tabindex="-1" type="button">특정 창</button></div><span id="source-count"></span></div>
+        <div id="sources" class="sources" role="tabpanel" aria-labelledby="tab-screen" aria-live="polite"><p class="source-message">화면 목록을 불러오는 중…</p></div>
+      </section>
+      <aside class="settings" aria-label="녹화 설정">
+        <h2>녹화 설정</h2>
+        <fieldset id="settings-fields">
+          <div class="field-row"><label for="resolution">영상 크기</label><select id="resolution"><option value="1080">최대 1080p · Full HD</option><option value="720">최대 720p · 가벼운 파일</option><option value="native">원본 해상도</option></select></div>
+          <div class="field-row"><label for="fps">프레임</label><select id="fps"><option value="30">30fps · 일반 화면 녹화</option><option value="60">60fps · 부드러운 움직임</option></select></div>
+          <div class="field-row"><label for="quality">화질</label><select id="quality"><option value="standard">표준</option><option value="high">높음 · 파일 크기 증가</option></select></div>
+          <div class="field-row"><label for="format">저장 형식</label><select id="format"></select><p class="field-help" id="format-help">영상 형식을 확인하는 중…</p></div>
+          <div class="audio-section"><h3>소리</h3><label class="check-row"><input type="checkbox" id="system-audio" checked><span>컴퓨터 소리</span></label><p class="field-help audio-help">창을 선택해도 컴퓨터 전체의 소리가 녹음됩니다.</p><label class="check-row"><input type="checkbox" id="microphone"><span>마이크</span></label><div id="mic-controls" hidden><label class="sr-only" for="mic-device">마이크 선택</label><select id="mic-device"><option value="default">기본 마이크</option></select><div class="volume-row"><label for="mic-volume">마이크 음량</label><output id="mic-volume-value" for="mic-volume">100%</output></div><input id="mic-volume" type="range" min="0" max="150" value="100" aria-label="마이크 음량"></div></div>
+          <label class="check-row minimize-choice"><input type="checkbox" id="auto-minimize" checked><span>녹화 시작 시 창 최소화</span></label>
+        </fieldset>
+        <div class="shortcut-note"><span>일시정지 / 재개</span><kbd>Ctrl + Shift + F9</kbd><span>녹화 중지</span><kbd>Ctrl + Shift + F10</kbd></div>
+      </aside>
+    </main>
+    <footer class="recording-bar">
+      <div class="recording-info"><div class="state-row"><span id="state-dot" class="state-dot"></span><span id="state-label">준비</span></div><span class="clock" id="clock">00:00:00</span><span id="recording-detail" class="recording-detail">녹화할 화면을 선택해 주세요</span></div>
+      <div class="recording-actions"><button id="pause" class="button secondary" type="button" disabled>일시정지</button><button id="record" class="button record-button" type="button" disabled><span class="record-icon" aria-hidden="true"></span><span id="record-label">녹화 시작</span></button></div>
+    </footer>
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden><span id="notice-text"></span><button id="show-file" class="text-button" type="button" hidden>저장 위치 열기</button></div>
+    <p class="bottom-note">녹화를 시작하면 저장 위치를 선택합니다. 이 프로그램 창은 녹화 대상 목록에서 제외됩니다.</p>
+  </div>
+</body>
+</html>

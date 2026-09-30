@@ -1,0 +1,16 @@
+{
+  "name": "screen-recorder",
+  "version": "1.0.0",
+  "description": "Windows 화면 녹화 프로그램",
+  "main": "main.cjs",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "package": "node scripts/package.cjs"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "playwright-core": "^1.63.0"
+  }
+}

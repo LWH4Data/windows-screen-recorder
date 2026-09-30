@@ -1,0 +1,54 @@
+# Dependencies and packaged runtime
+node_modules/
+dist/
+outputs/
+electron-cache/
+npm-cache/
+
+# Local recordings and incomplete recordings
+recordings/
+test-recordings/
+*.mp4
+*.webm
+*.mkv
+*.mov
+*.avi
+*.recording
+
+# Test profiles, generated evidence, and temporary test folders
+.test-user-data/
+test-user-data/
+capture-smoke-profile/
+.package-test-profile/
+recording-store-test-*/
+*-test-profile/
+integration-result.json
+capture-smoke-result.json
+test-results/
+playwright-report/
+
+# Local configuration, credentials, logs, and scratch work
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+*.log
+npm-debug.log*
+.impeccable/
+.codex/
+.agents/
+work/
+.cache/
+tmp/
+temp/
+*.tmp
+
+# Editor and operating-system files
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store
