@@ -2,16 +2,21 @@
 
 const {
   app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain,
-  Menu, nativeImage, powerSaveBlocker, session, shell, Tray,
+  Menu, nativeImage, powerSaveBlocker, session, shell, systemPreferences, Tray,
 } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const { RecordingStore, MAX_CHUNK_BYTES } = require('./recording-store.cjs');
+const { platformSupport } = require('./platform-support.cjs');
+const support = platformSupport(process.platform, require('node:os').release());
+
 
 const testMode = process.argv.includes('--test-mode');
 const entryPath = path.join(__dirname, 'index.html');
 const entryURL = pathToFileURL(entryPath).href;
+const testWorkspace = support.mac && app.isPackaged
+  ? path.resolve(__dirname, '../../../..') : path.resolve(__dirname, '..', '..');
 const store = new RecordingStore();
 const ownedSessions = new Set();
 const completedPaths = new Set();
@@ -37,8 +42,7 @@ if (testMode) {
     || process.env.SCREEN_RECORDER_TEST_USER_DATA
     || process.env.RECORDER_TEST_USER_DATA || process.env.RECORDER_USER_DATA_DIR;
   const profilePath = path.resolve(__dirname, suppliedPath || '.test-user-data');
-  const workspace = path.resolve(__dirname, '..', '..');
-  const relative = path.relative(workspace, profilePath);
+  const relative = path.relative(testWorkspace, profilePath);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
     throw new Error('--test-mode의 사용자 데이터 경로는 이 작업 폴더 안에 있어야 합니다.');
   }
@@ -78,6 +82,8 @@ function hasUnfinishedRecording() {
 }
 
 async function captureSources(withThumbnails) {
+  // Enumerating also triggers the first native screen permission prompt. macOS
+  // reports 'denied' before a first request, so do not skip enumeration here.
   const ownId = mainWindow?.getMediaSourceId();
   const sources = await desktopCapturer.getSources({
     types: ['screen', 'window'],
@@ -129,7 +135,7 @@ function trayImage() {
 }
 
 function revealWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!mainWindow || mainWindow.isDestroyed()) { createWindow(); return; }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
@@ -229,7 +235,7 @@ function setupCapturePermissions() {
       return;
     }
     const streams = { video: selection.source };
-    if (selection.systemAudio && request.audioRequested && process.platform === 'win32') {
+    if (selection.systemAudio && request.audioRequested && support.systemAudio) {
       streams.audio = 'loopback';
     }
     callback(streams);
@@ -237,6 +243,16 @@ function setupCapturePermissions() {
 }
 
 function setupIPC() {
+  handle('getEnvironment', () => ({
+    ...support,
+    permissionApp: app.isPackaged ? 'Screen Recorder' : 'Electron',
+    screenAccess: support.mac ? systemPreferences.getMediaAccessStatus('screen') : 'granted',
+    microphoneAccess: support.mac ? systemPreferences.getMediaAccessStatus('microphone') : 'granted',
+  }));
+  handle('openPrivacySettings', (kind) => {
+    if (!support.mac || !['screen', 'microphone'].includes(kind)) throw new Error('지원하지 않는 권한 설정입니다.');
+    return shell.openExternal(`${support.privacySettingsBase}${kind === 'screen' ? 'Privacy_ScreenCapture' : 'Privacy_Microphone'}`);
+  });
   handle('getSources', async () => {
     const sources = await captureSources(true);
     return sources.map((source) => ({
@@ -249,8 +265,21 @@ function setupIPC() {
     preparedCapture = null;
     if (shutdownKind || recovering) throw new Error('녹화를 마무리하는 중입니다.');
     if (!options || typeof options.sourceId !== 'string' || options.sourceId.length > 512
-      || typeof options.systemAudio !== 'boolean') {
+      || typeof options.systemAudio !== 'boolean'
+      || (options.microphone !== undefined && typeof options.microphone !== 'boolean')) {
       throw new Error('녹화할 화면과 소리 설정을 확인해 주세요.');
+    }
+    if (options.systemAudio && !support.systemAudio) throw new Error(support.systemAudioHelp);
+    if (support.mac) {
+      if (['denied', 'restricted'].includes(systemPreferences.getMediaAccessStatus('screen'))) {
+        throw new Error('시스템 설정 → 개인정보 보호 및 보안 → 화면 및 시스템 오디오 녹음에서 이 앱을 허용한 뒤 앱을 다시 열어 주세요.');
+      }
+      // getUserMedia requests first-time microphone access after display capture.
+      // Waiting for a native permission dialog here would expire getDisplayMedia's
+      // required transient activation from the user's Start click.
+      if (options.microphone && ['denied', 'restricted'].includes(systemPreferences.getMediaAccessStatus('microphone'))) {
+        throw new Error('마이크 접근을 허용하지 않았어요. 시스템 설정 → 개인정보 보호 및 보안 → 마이크에서 이 앱을 허용하거나 마이크 옵션을 꺼 주세요.');
+      }
     }
     const source = (await captureSources(false)).find((item) => item.id === options.sourceId);
     if (!source) throw new Error('선택한 화면이나 창이 없어졌습니다. 다시 선택해 주세요.');
@@ -269,8 +298,7 @@ function setupIPC() {
       let result;
       if (testMode && process.env.SCREEN_RECORDER_TEST_SAVE_DIR) {
         const saveDirectory = path.resolve(process.env.SCREEN_RECORDER_TEST_SAVE_DIR);
-        const workspace = path.resolve(__dirname, '..', '..');
-        const relative = path.relative(workspace, saveDirectory);
+        const relative = path.relative(testWorkspace, saveDirectory);
         if (relative.startsWith('..') || path.isAbsolute(relative)) {
           throw new Error('테스트 녹화 저장 폴더는 이 작업 폴더 안에 있어야 합니다.');
         }
@@ -367,7 +395,7 @@ function createWindow() {
       offscreen: testMode,
     },
   });
-  mainWindow.removeMenu();
+  if (!support.mac) mainWindow.removeMenu();
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', (event, url) => {
     preparedCapture = null;
@@ -393,13 +421,25 @@ function createWindow() {
 app.whenReady().then(() => {
   setupCapturePermissions();
   setupIPC();
+  if (support.mac) {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { label: 'Screen Recorder', submenu: [
+        { role: 'about', label: 'Screen Recorder 정보' }, { type: 'separator' },
+        { label: '화면 녹화 권한 설정…', click: () => { void shell.openExternal(`${support.privacySettingsBase}Privacy_ScreenCapture`); } },
+        { type: 'separator' }, { role: 'hide', label: 'Screen Recorder 가리기' },
+        { role: 'hideOthers', label: '기타 가리기' }, { role: 'unhide', label: '모두 보기' },
+        { type: 'separator' }, { role: 'quit', label: 'Screen Recorder 종료' },
+      ] },
+      { role: 'editMenu', label: '편집' }, { role: 'windowMenu', label: '윈도우' },
+    ]));
+  }
   createWindow();
   if (!testMode) {
     tray = new Tray(trayImage());
     tray.on('double-click', revealWindow);
     updateTray();
     for (const [accelerator, command] of [
-      ['Control+Shift+F9', 'pause'], ['Control+Shift+F10', 'stop'],
+      [support.pauseShortcut, 'pause'], [support.stopShortcut, 'stop'],
     ]) {
       if (!globalShortcut.register(accelerator, () => sendCommand(command))) {
         console.warn(`[recorder] ${accelerator} 단축키를 다른 프로그램이 사용 중입니다.`);
@@ -422,4 +462,5 @@ app.on('will-quit', () => {
   if (sleepBlockerId !== null) powerSaveBlocker.stop(sleepBlockerId);
   if (tray && !tray.isDestroyed()) tray.destroy();
 });
-app.on('window-all-closed', () => app.quit());
+app.on('activate', () => { if (support.mac) revealWindow(); });
+app.on('window-all-closed', () => { if (!support.mac || testMode) app.quit(); });

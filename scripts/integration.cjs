@@ -17,6 +17,16 @@ const errors = [];
   application = await electron.launch({executablePath:require('electron'),args:[project,'--test-mode'],env,timeout:30000});
   const page = await application.firstWindow();
   page.on('pageerror',(error) => errors.push(error.message));
+  // A deterministic source fixture avoids taking thumbnails of personal windows
+  // and lets this encoder/storage test run without macOS screen permission.
+  await application.evaluate(({desktopCapturer, nativeImage, systemPreferences}) => {
+    desktopCapturer.getSources = async () => [{id:'screen:synthetic:0',name:'합성 테스트 화면',thumbnail:nativeImage.createEmpty()}];
+    if (process.platform === 'darwin') {
+      systemPreferences.getMediaAccessStatus = () => 'granted';
+      systemPreferences.askForMediaAccess = async () => true;
+    }
+  });
+  await page.evaluate(() => refreshSources());
   await page.waitForSelector('.source-card',{timeout:20000});
   const support = await page.evaluate(() => [...document.querySelector('#format').options].map((option)=>option.textContent));
   assert(support.length>0,'At least one encoding format is available');
@@ -92,6 +102,33 @@ const errors = [];
   assert.equal(metadata.width,1920);assert.equal(metadata.height,1080);assert(metadata.time>0,'Saved video plays');
   assert.equal(await page.locator('#resolution').isDisabled(),false,'Settings unlock after saving');
   assert.equal(await page.locator('#pause').isDisabled(),true);
+
+  // Permission errors are recoverable and expose the corresponding settings.
+  if (process.platform === 'darwin') {
+    assert.match(await page.locator('#pause-shortcut').textContent(), /Cmd/);
+    await application.evaluate(({systemPreferences}) => {
+      systemPreferences.getMediaAccessStatus = (kind) => kind === 'screen' ? 'denied' : 'granted';
+    });
+    await page.evaluate(() => refreshSources());
+    assert.equal(await page.locator('#permissions').isVisible(),true);
+    assert.equal(await page.locator('#screen-permission').isVisible(),true);
+    assert.equal(await page.locator('#record').isDisabled(),true);
+    await application.evaluate(({systemPreferences}) => {
+      systemPreferences.getMediaAccessStatus = (kind) => kind === 'microphone' ? 'denied' : 'granted';
+      systemPreferences.askForMediaAccess = async () => false;
+    });
+    await page.evaluate(() => refreshSources());
+    await page.locator('.source-card').first().click();
+    await page.locator('#record').click();
+    await page.waitForFunction(() => document.querySelector('#notice-text').textContent.includes('마이크 접근을 허용하지 않았어요'));
+    assert.equal(await page.locator('#mic-permission').isVisible(),true);
+    assert.equal(await page.locator('#state-label').textContent(),'준비');
+    await application.evaluate(({systemPreferences}) => {
+      systemPreferences.getMediaAccessStatus = () => 'granted';
+      systemPreferences.askForMediaAccess = async () => true;
+    });
+    await page.evaluate(() => refreshSources());
+  }
 
   // A second recording exercises source-end auto-save and the screen-only path.
   await page.locator('#microphone').uncheck();await page.locator('#system-audio').uncheck();

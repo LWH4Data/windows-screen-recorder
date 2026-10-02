@@ -5,6 +5,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 // Expose specific operations only. No generic IPC or filesystem access reaches
 // the sandboxed page, and command subscribers never receive Electron events.
 contextBridge.exposeInMainWorld('recorder', Object.freeze({
+  getEnvironment: () => ipcRenderer.invoke('recorder:getEnvironment'),
+  openPrivacySettings: (kind) => ipcRenderer.invoke('recorder:openPrivacySettings', kind),
   getSources: () => ipcRenderer.invoke('recorder:getSources'),
   prepareCapture: (options) => ipcRenderer.invoke('recorder:prepareCapture', options),
   beginRecording: (options) => ipcRenderer.invoke('recorder:beginRecording', options),

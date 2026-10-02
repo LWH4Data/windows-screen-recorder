@@ -2,6 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const api = window.recorder;
+let environment = null;
 let sources = [], sourceKind = 'screen', selectedSource = null;
 let state = 'idle', mediaRecorder = null, displayStream = null, micStream = null;
 let mixedStream = null, audioContext = null, micGain = null, recording = null;
@@ -33,7 +34,7 @@ function updateFormatHelp() {
   const format = availableFormats[Number($('format').value)];
   $('format-help').textContent = format?.extension === 'mp4'
     ? '녹화 후 MP4 파일로 저장합니다.'
-    : '이 PC의 대체 형식입니다. MP4가 필요하면 영상 편집기에서 변환할 수 있어요.';
+    : '이 컴퓨터의 대체 형식입니다. MP4가 필요하면 영상 편집기에서 변환할 수 있어요.';
 }
 $('format').addEventListener('change', updateFormatHelp);
 updateFormatHelp();
@@ -53,7 +54,8 @@ function setState(next) {
   $('refresh').disabled = busy;
   $('tab-screen').disabled = busy; $('tab-window').disabled = busy;
   document.querySelectorAll('.source-card').forEach((button) => { button.disabled = busy; });
-  $('record').disabled = state === 'preparing' || state === 'saving' || (!capturing && (!selectedSource || !availableFormats.length));
+  const screenDenied = environment?.mac && environment.screenAccess !== 'granted';
+  $('record').disabled = state === 'preparing' || state === 'saving' || (!capturing && (!environment || screenDenied || !selectedSource || !availableFormats.length));
   $('pause').disabled = !capturing;
   $('pause').textContent = state === 'paused' ? '녹화 재개' : '일시정지';
   $('record-label').textContent = capturing ? '녹화 중지' : state === 'saving' ? '저장하는 중…' : state === 'preparing' ? '준비하는 중…' : '녹화 시작';
@@ -96,6 +98,7 @@ async function refreshSources() {
   if (state !== 'idle') return;
   $('refresh').disabled = true;
   try {
+    await refreshEnvironment();
     sources = await api.getSources();
     if (selectedSource && !sources.some((source) => source.id === selectedSource.id)) {
       selectedSource = null; $('source-preview').hidden = true;
@@ -105,9 +108,32 @@ async function refreshSources() {
       chooseSource(sources.find((source) => source.id === selectedSource.id));
     }
     displaySources();
+    await refreshEnvironment();
   } catch (error) {
     notify(`화면 목록을 불러오지 못했어요. 목록 새로고침을 눌러 주세요. ${cleanError(error)}`, 'error');
   } finally { setState(state); }
+}
+async function refreshEnvironment() {
+  environment = await api.getEnvironment();
+  $('pause-shortcut').textContent = environment.pauseLabel;
+  $('stop-shortcut').textContent = environment.stopLabel;
+  $('mac-function-help').hidden = !environment.mac;
+  $('mac-function-help').textContent = 'F 키가 음량·미디어를 조절하면 Fn 키도 함께 누르세요.';
+  $('system-audio').disabled = !environment.systemAudio;
+  if (!environment.systemAudio) $('system-audio').checked = false;
+  $('audio-help').textContent = environment.systemAudioHelp;
+  const screenMissing = environment.mac && environment.screenAccess !== 'granted';
+  const micDenied = environment.mac && $('microphone').checked
+    && ['denied', 'restricted'].includes(environment.microphoneAccess);
+  $('permissions').hidden = !screenMissing && !micDenied;
+  $('screen-permission').hidden = !screenMissing;
+  $('mic-permission').hidden = !micDenied;
+  $('permission-help').textContent = screenMissing
+    ? `시스템 설정 → 개인정보 보호 및 보안 → 화면 및 시스템 오디오 녹음(또는 화면 기록)에서 ${environment.permissionApp}를 허용해 주세요. 허용 후 앱을 다시 열거나 목록을 새로고침하세요.`
+    : '시스템 설정 → 개인정보 보호 및 보안 → 마이크에서 이 앱을 허용하거나 마이크 옵션을 꺼 주세요.';
+}
+for (const [id, kind] of [['screen-permission', 'screen'], ['mic-permission', 'microphone']]) {
+  $(id).addEventListener('click', () => api.openPrivacySettings(kind).catch((error) => notify(cleanError(error), 'error')));
 }
 function setSourceKind(kind) {
   if (state !== 'idle') return;
@@ -132,7 +158,9 @@ function cleanError(error) {
   return String(error?.message || error || '').replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '').slice(0, 240);
 }
 function captureError(error) {
-  if (error?.name === 'NotAllowedError') return '화면 또는 마이크 접근을 허용하지 않았어요. Windows의 마이크 개인정보 설정을 확인한 뒤 다시 시도해 주세요.';
+  if (error?.name === 'NotAllowedError') return environment?.mac
+    ? '화면 또는 마이크 접근을 허용하지 않았어요. 시스템 설정 → 개인정보 보호 및 보안에서 이 앱의 화면 녹화·마이크 권한을 확인한 뒤 다시 열어 주세요.'
+    : '화면 또는 마이크 접근을 허용하지 않았어요. Windows의 마이크 개인정보 설정을 확인한 뒤 다시 시도해 주세요.';
   if (error?.name === 'NotFoundError') return '사용할 마이크를 찾지 못했어요. 마이크를 연결하거나 마이크 옵션을 꺼 주세요.';
   if (error?.name === 'NotReadableError') return '화면이나 마이크를 사용할 수 없어요. 선택한 창이 열려 있는지, 장치를 다른 앱이 사용 중인지 확인해 주세요.';
   return `녹화를 시작하지 못했어요. 다시 화면을 선택한 뒤 시도해 주세요. ${cleanError(error)}`;
@@ -165,6 +193,7 @@ async function enumerateMicrophones() {
 $('microphone').addEventListener('change', () => {
   $('mic-controls').hidden = !$('microphone').checked;
   if ($('microphone').checked) enumerateMicrophones();
+  refreshEnvironment().catch((error) => notify(cleanError(error), 'error'));
 });
 $('mic-volume').addEventListener('input', () => {
   $('mic-volume-value').value = `${$('mic-volume').value}%`;
@@ -187,7 +216,7 @@ async function startRecording() {
   elapsedBeforePause = 0; savedBytes = 0; updateClock();
   try {
     const sourceId = selectedSource.id;
-    await api.prepareCapture({sourceId, systemAudio: $('system-audio').checked});
+    await api.prepareCapture({sourceId, systemAudio: $('system-audio').checked, microphone: $('microphone').checked});
     const fps = Number($('fps').value), resolution = $('resolution').value;
     const videoConstraints = {frameRate:{ideal:fps,max:fps}};
     if (resolution !== 'native') {
@@ -196,7 +225,12 @@ async function startRecording() {
     }
     displayStream = await navigator.mediaDevices.getDisplayMedia({video:videoConstraints,audio:$('system-audio').checked});
     if (!$('system-audio').checked) displayStream.getAudioTracks().forEach((track) => { track.stop(); displayStream.removeTrack(track); });
-    if ($('system-audio').checked && !displayStream.getAudioTracks().length) throw new Error('컴퓨터 소리를 가져오지 못했어요. 오디오 출력 장치를 확인하거나 컴퓨터 소리 옵션을 꺼 주세요.');
+    if ($('system-audio').checked && !displayStream.getAudioTracks().length) throw new Error(environment.mac
+      ? '컴퓨터 소리를 가져오지 못했어요. 시스템 설정의 화면 및 시스템 오디오 녹음 권한을 확인하거나 컴퓨터 소리 옵션을 꺼 주세요.'
+      : '컴퓨터 소리를 가져오지 못했어요. 오디오 출력 장치를 확인하거나 컴퓨터 소리 옵션을 꺼 주세요.');
+    if (displayStream.getAudioTracks().some((track) => track.readyState !== 'live')) {
+      throw new Error('컴퓨터 소리 녹음이 중단됐어요. 이 앱의 시스템 오디오 녹음 권한을 확인하거나 컴퓨터 소리 옵션을 꺼 주세요.');
+    }
     const videoTrack = displayStream.getVideoTracks()[0];
     if (!videoTrack || videoTrack.readyState !== 'live') throw new Error('선택한 화면을 사용할 수 없어요. 화면 목록을 새로고침해 주세요.');
     mixedStream = new MediaStream([videoTrack]);
@@ -282,6 +316,7 @@ async function startRecording() {
     recording = null; mediaRecorder = null; setState('idle');
     if (resolveFinalization) { resolveFinalization(); resolveFinalization = null; }
     notify(captureError(error),'error');
+    await refreshEnvironment().catch(() => {});
   }
 }
 
@@ -342,5 +377,5 @@ api.onCommand((command) => {
   if (command === 'pause') togglePause().catch((error) => { notify(cleanError(error),'error'); requestStop(); });
   else if (command === 'stop') requestStop();
 });
-if (!availableFormats.length) notify('이 PC에서 지원하는 영상 인코더를 찾지 못했어요. 다른 PC에서 실행해 주세요.','error');
+if (!availableFormats.length) notify('이 컴퓨터에서 지원하는 영상 인코더를 찾지 못했어요. 다른 컴퓨터에서 실행해 주세요.','error');
 refreshSources();
