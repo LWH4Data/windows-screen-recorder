@@ -20,7 +20,7 @@ Mac은 Apple Silicon용 `arm64`와 Intel용 `x64` 빌드 경로를 제공합니�
 
 ### Windows
 
-[Windows 실행용 ZIP 다운로드](https://github.com/LWH4Data/windows-screen-recorder/releases/latest/download/ScreenRecorder-Windows.zip)
+[Windows 실행용 ZIP 다운로드](https://github.com/LWH4Data/screen-recorder-test/releases/latest/download/ScreenRecorder-Windows.zip)
 
 1. ZIP의 **폴더 전체**를 압축 해제합니다.
 2. 폴더 안의 `ScreenRecorder.exe`를 실행합니다.
@@ -32,8 +32,8 @@ Mac은 Apple Silicon용 `arm64`와 Intel용 `x64` 빌드 경로를 제공합니�
 Mac 실행용 ZIP은 아직 GitHub Release에 게시하지 않았습니다. 최신 소스를 Mac에서 빌드하려면 **Node.js 22.12 이상과 npm, Git**을 설치한 뒤 다음 명령을 실행합니다.
 
 ```sh
-git clone https://github.com/LWH4Data/windows-screen-recorder.git
-cd windows-screen-recorder
+git clone https://github.com/LWH4Data/screen-recorder-test.git
+cd screen-recorder-test
 npm ci
 npm run package
 ```
